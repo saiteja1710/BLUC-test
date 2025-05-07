@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Omegle Video Chat</title>
+    <style>
+        video {
+            width: 45%;
+            border: 2px solid #333;
+            border-radius: 10px;
+            margin: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Omegle Clone</h2>
+    <button id="start-video-chat">Start Video Chat</button>
+
+    <div id="matching-screen" style="display:none;">
+        <p>Matching with a stranger...</p>
+    </div>
+
+    <div id="video-chat" style="display:none;">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <video id="remoteVideo" autoplay playsinline></video>
+        <br>
+        <button id="skip">Skip</button>
+        <button id="exit">Exit</button>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let localStream, peerConnection;
+        let room = null;
+        const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+        const startBtn = document.getElementById('start-video-chat');
+        const matchScreen = document.getElementById('matching-screen');
+        const videoScreen = document.getElementById('video-chat');
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+
+        startBtn.onclick = async () => {
+            startBtn.style.display = 'none';
+            matchScreen.style.display = 'block';
+            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            socket.emit('find-video-partner');
+        };
+
+        socket.on('video-partner-found', ({ room: matchedRoom }) => {
+            room = matchedRoom;
+            matchScreen.style.display = 'none';
+            videoScreen.style.display = 'block';
+            initWebRTC(true);
+        });
+
+        socket.on('offer', async (offer) => {
+            await initWebRTC(false);
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            socket.emit('answer', { room, answer });
+        });
+
+        socket.on('answer', async (answer) => {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+        });
+
+        socket.on('ice-candidate', async (candidate) => {
+            if (peerConnection) {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+        });
+
+        async function initWebRTC(isInitiator) {
+            peerConnection = new RTCPeerConnection(servers);
+
+            peerConnection.onicecandidate = ({ candidate }) => {
+                if (candidate) {
+                    socket.emit('ice-candidate', { room, candidate });
+                }
+            };
+
+            peerConnection.ontrack = (event) => {
+                remoteVideo.srcObject = event.streams[0];
+            };
+
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            localVideo.srcObject = localStream;
+
+            if (isInitiator) {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                socket.emit('offer', { room, offer });
+            }
+        }
+
+        document.getElementById('skip').onclick = () => {
+            socket.emit('skip', { room });
+            resetVideo();
+            socket.emit('find-video-partner');
+            matchScreen.style.display = 'block';
+            videoScreen.style.display = 'none';
+        };
+
+        document.getElementById('exit').onclick = () => {
+            socket.emit('exit', { room });
+            resetVideo();
+            location.reload();
+        };
+
+        function resetVideo() {
+            if (peerConnection) peerConnection.close();
+            peerConnection = null;
+            remoteVideo.srcObject = null;
+        }
+
+        socket.on('exit', () => {
+            alert("Stranger disconnected.");
+            resetVideo();
+            location.reload();
+        });
+    </script>
+</body>
+
+</html>
