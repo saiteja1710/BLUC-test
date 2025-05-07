@@ -83,12 +83,13 @@
                 }
             };
 
-            peerConnection.ontrack = (event) => {
-                remoteVideo.srcObject = event.streams[0];
-            };
-
+            
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
             localVideo.srcObject = localStream;
+            peerConnection.ontrack = event => {
+                const [remoteStream] = event.streams;
+                remoteVideo.srcObject = remoteStream;
+            };
 
             if (isInitiator) {
                 const offer = await peerConnection.createOffer();
